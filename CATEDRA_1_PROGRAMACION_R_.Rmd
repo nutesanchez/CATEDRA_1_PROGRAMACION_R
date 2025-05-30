@@ -1,0 +1,386 @@
+---
+title: "Análisis y Predicción de Obesidad Sarcopénica"
+author: "Evelyn Sánchez"
+date: "29-05-2025"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+```
+
+# 1. Definición del Problema / Objetivo de Investigación
+
+La obesidad sarcopénica es una condición clínica caracterizada por la coexistencia de exceso de grasa corporal y baja masa muscular, lo que genera un fenotipo de alto riesgo metabólico y funcional. Este síndrome ha sido asociado a mayor riesgo de caídas, pérdida de movilidad, discapacidad, deterioro cognitivo y mortalidad, particularmente en adultos mayores (Donini et al., 2019; Prado et al., 2018). Su detección precoz es esencial para implementar estrategias de intervención nutricional y funcional que mejoren la calidad de vida y prevengan complicaciones.
+
+Los métodos tradicionales de diagnóstico requieren evaluaciones clínicas y funcionales complejas, por lo que se hace necesario contar con herramientas predictivas simples, objetivas y basadas en datos fácilmente obtenibles, como los entregados por bioimpedancia (BIA), que proporcionan indicadores como el porcentaje de grasa corporal y el índice de masa muscular esquelética (SMI).
+
+Objetivo:
+Desarrollar un modelo predictivo utilizando regresión logística que permita identificar individuos en riesgo de obesidad sarcopénica, a partir de variables de composición corporal obtenidas mediante bioimpedancia, como el porcentaje de grasa corporal, masa muscular esquelética y el índice SMI.
+
+El propósito del modelo es facilitar la detección temprana de esta condición en contextos clínicos y comunitarios, contribuyendo a la toma de decisiones preventivas y terapéuticas basadas en datos objetivos.
+
+# 1. Introducción
+
+El presente análisis se basa en un conjunto de datos obtenidos a partir de evaluaciones de composición corporal realizadas mediante bioimpedancia eléctrica (InBody®), una técnica no invasiva ampliamente utilizada en contextos clínicos y comunitarios. Esta tecnología permite estimar con alta precisión parámetros corporales relevantes para la salud metabólica y funcional.
+
+La base de datos original contiene más de 100 variables; sin embargo, para los fines de este estudio se seleccionaron aquellas con mayor relevancia clínica y fisiológica en el contexto del diagnóstico de obesidad sarcopénica. Estas incluyen:
+
+Sexo y edad (variables demográficas clave)
+
+Estatura y peso corporal
+
+Porcentaje de grasa corporal (%)
+
+Masa muscular esquelética (kg)
+
+Índice de masa muscular esquelética (SMI, Skeletal Muscle Index)
+
+Estas variables permiten estimar el estado nutricional, la composición corporal y la condición funcional del individuo, y constituyen la base para el desarrollo de un modelo predictivo orientado a identificar individuos en riesgo de obesidad sarcopénica
+
+# 2. Preprocesamiento de Datos: 
+
+Para preparar los datos para el análisis, primero se cargó el archivo Excel con los resultados de las evaluaciones de composición corporal. Luego se seleccionaron las variables: sexo, edad, estatura, peso, porcentaje de grasa corporal, masa muscular y el índice SMI.  
+Se aplicó limpieza de datos reemplazando comas decimales, transformando tipos de variables y eliminando casos con valores faltantes.  
+Finalmente, se creó la variable `riesgo_sarc` que indica si la persona cumple con los criterios clínicos de obesidad sarcopénica.
+
+
+```{r preprocesamiento, echo=FALSE, message=FALSE, warning=FALSE}
+# Cargar datos
+datos <- read_excel("InBodyExcelData_catedra_R.xlsx")
+
+# Seleccionar y limpiar variables clave
+datos_limpios <- datos %>%
+  transmute(
+    sexo = factor(`5. Gender`, levels = c("F", "M")),
+    edad = as.numeric(str_replace(`6. Age`, ",", ".")),
+    estatura_cm = as.numeric(str_replace(`3. Height`, ",", "."))
+,
+    peso_kg = as.numeric(str_replace(`15. Weight`, ",", ".")),
+    grasa_pct = as.numeric(str_replace(`42. PBF (Percent Body Fat)`, ",", ".")),
+    masa_muscular_kg = as.numeric(str_replace(`36. SMM (Skeletal Muscle Mass)`, ",", ".")),
+    smi = as.numeric(str_replace(`116. SMI (Skeletal Muscle Index)`, ",", "."))
+  ) %>%
+  drop_na()
+
+
+# Crear variable de riesgo de obesidad sarcopénica
+datos_limpios <- datos_limpios %>%
+  mutate(
+    riesgo_sarc = case_when(
+      sexo == "F" & grasa_pct > 38 & smi < 5.7 ~ 1,
+      sexo == "M" & grasa_pct > 27 & smi < 7.0 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+table(datos_limpios$riesgo_sarc)
+
+
+```
+
+```{r}
+knitr::kable(as.data.frame(table(datos_limpios$riesgo_sarc)),
+             col.names = c("Riesgo", "Frecuencia"),
+             caption = "Distribución del riesgo de obesidad sarcopénica")
+```
+
+
+# 3. Análisis Exploratorio de Datos (EDA)
+
+Antes de construir un modelo predictivo, es fundamental comprender la distribución de las variables y sus posibles relaciones. El análisis exploratorio de datos (EDA) permite identificar patrones, valores atípicos, asociaciones iniciales entre variables, y verificar la calidad del preprocesamiento realizado.
+
+En este caso, se explora la composición corporal de los participantes a partir de variables como el porcentaje de grasa corporal (% grasa), el índice de masa muscular esquelética (SMI), el sexo y la variable de riesgo clínico de obesidad sarcopénica (`riesgo_sarc`).
+
+Se presentan histogramas y diagramas de caja (boxplots) para visualizar las diferencias por sexo y condición de riesgo, así como una tabla resumen con estadísticas descriptivas agrupadas. Estas visualizaciones ayudan a justificar la selección de variables para el modelo predictivo posterior.
+
+
+```{r graficos_eda}
+# Histograma 1: % Grasa por sexo
+ggplot(datos_limpios, aes(x = grasa_pct, fill = sexo)) +
+  geom_histogram(binwidth = 2, alpha = 0.6, position = "identity") +
+  labs(title = "Distribución del % de Grasa Corporal por Sexo", x = "% Grasa", y = "Frecuencia", fill = "Sexo")
+
+```
+
+### Interpretación del gráfico de distribución de % grasa por sexo
+
+El histograma muestra una clara diferencia en la distribución del porcentaje de grasa corporal entre hombres y mujeres. Se observa que los hombres tienden a concentrarse en valores más bajos de grasa corporal, principalmente entre el 15% y 30%, mientras que las mujeres presentan una distribución desplazada hacia valores más altos, con una mayor concentración entre el 30% y 45%.
+
+Esta diferencia es consistente con la fisiología normal, ya que las mujeres presentan mayores niveles de grasa corporal por razones hormonales y reproductivas. El gráfico también revela una zona de superposición entre ambos sexos en el rango de 25%–35%, lo cual refuerza la necesidad de aplicar **puntos de corte diferenciados por sexo** al momento de evaluar el riesgo de obesidad sarcopénica.
+
+Estas observaciones justifican la inclusión del sexo como una variable relevante en el modelo predictivo desarrollado.
+
+```{r histograma-grasa-riesgo, fig.width=8, fig.height=6}
+# Histograma 2: % Grasa por riesgo sarcopénico
+ggplot(datos_limpios, aes(x = grasa_pct, fill = factor(riesgo_sarc))) +
+  geom_histogram(binwidth = 2, alpha = 0.6, position = "identity") +
+  labs(title = "Distribución del % de Grasa según Riesgo Sarcopénico", 
+       x = "% Grasa", y = "Frecuencia", fill = "Riesgo") +
+  theme_minimal()
+```
+
+
+
+### Interpretación del gráfico de % grasa según riesgo sarcopénico
+
+El histograma muestra la distribución del porcentaje de grasa corporal en función de la clasificación de riesgo sarcopénico. Se observa que la mayoría de los individuos **sin riesgo** (color rosado, `riesgo = 0`) presentan un amplio rango de % grasa, con mayor concentración entre el 20% y 40%.
+
+En cambio, los individuos **con riesgo sarcopénico** (color celeste, `riesgo = 1`) tienden a concentrarse en la zona de **mayor porcentaje de grasa corporal**, principalmente sobre el 38%, lo cual es consistente con los puntos de corte clínicos utilizados para identificar esta condición.
+
+Este gráfico respalda visualmente la asociación entre un mayor % de grasa corporal y el riesgo de obesidad sarcopénica, y refuerza su inclusión como variable clave en el modelo predictivo.
+
+```{r boxplot-smi-sexo-riesgo, fig.width=8, fig.height=6}
+# Boxplot: SMI por sexo y riesgo
+ggplot(datos_limpios, aes(x = sexo, y = smi, fill = factor(riesgo_sarc))) +
+  geom_boxplot() +
+  labs(title = "SMI por Sexo y Condición de Riesgo", 
+       y = "SMI", 
+       fill = "Riesgo Sarcopénico") +
+  theme_minimal()
+```
+
+### Interpretación del gráfico de SMI por sexo y condición de riesgo
+
+Este boxplot muestra la distribución del índice de masa muscular esquelética (SMI) según sexo y condición de riesgo sarcopénico.
+
+Se observa que:
+- En ambos sexos, los individuos **sin riesgo** (`riesgo = 0`, en color rosado) presentan valores más altos de SMI.
+- Los individuos **con riesgo sarcopénico** (`riesgo = 1`, color celeste) tienen valores de SMI notablemente más bajos.
+- En mujeres, el grupo con riesgo muestra una mediana de SMI cercana a 5.5, mientras que las sin riesgo tienen una mediana superior a 6.5.
+- En hombres, se repite la tendencia: los que presentan riesgo tienen SMI más bajo que los que no.
+
+Este gráfico visualiza claramente la relación entre **bajo SMI y riesgo sarcopénico**, reforzando la importancia de este indicador como **criterio diagnóstico clave** y como variable predictiva en el modelo desarrollado.
+
+```{r tabla-resumen-sexo-riesgo}
+knitr::kable(
+  datos_limpios %>%
+    group_by(sexo, riesgo_sarc) %>%
+    summarise(
+      n = n(),
+      grasa_promedio = round(mean(grasa_pct), 1),
+      musculo_promedio = round(mean(masa_muscular_kg), 1),
+      smi_promedio = round(mean(smi), 2),
+      .groups = "drop"
+    ),
+  caption = "Resumen descriptivo por sexo y condición de riesgo de obesidad sarcopénica"
+)
+```
+
+
+
+
+# 4. Planificación del Proyecto de Data Science
+
+## 4.1. Marco Teórico
+
+La obesidad sarcopénica es una condición clínica caracterizada por la coexistencia de una masa grasa elevada y una baja masa muscular. Se ha asociado a mayor riesgo de discapacidad, deterioro funcional y enfermedades metabólicas, especialmente en adultos mayores. Su detección temprana puede contribuir a prevenir consecuencias clínicas relevantes, y la evaluación a través de bioimpedancia permite obtener indicadores útiles como el porcentaje de grasa corporal y el índice de masa muscular esquelética (SMI).
+
+Estudios clínicos sugieren como punto de corte referencial:
+- Para mujeres: % grasa > 38% y SMI < 5.7
+- Para hombres: % grasa > 27% y SMI < 7.0
+
+El uso de técnicas de ciencia de datos para construir modelos predictivos puede mejorar la identificación temprana de esta condición en poblaciones sanas o en riesgo.
+
+Los criterios clínicos tradicionales para identificar obesidad sarcopénica —basados en puntos de corte para el porcentaje de grasa corporal y el índice de masa muscular esquelética (SMI)— permiten una clasificación binaria rápida, pero presentan limitaciones importantes. En contraste, un modelo predictivo como el desarrollado en este estudio, basado en regresión logística, ofrece múltiples beneficios adicionales:
+ 1. Considera múltiples variables en conjunto
+•	Los criterios clínicos tratan cada variable por separado y aplican reglas fijas.
+•	El modelo predictivo integra edad, sexo, grasa, músculo, IMC, etc. de manera simultánea, permitiendo identificar combinaciones atípicas que pueden indicar riesgo incluso si no se superan todos los umbrales clínicos.
+
+2. Estima una probabilidad de riesgo, no solo una clasificación dicotómica
+•	Mientras que los puntos de corte clasifican a la persona como "riesgo sí/no", el modelo entrega un valor de probabilidad individualizado (ej. "riesgo de 82%").
+•	Esto aporta matices en la toma de decisiones clínicas y permite establecer zonas grises o de seguimiento.
+3. Adaptabilidad y ajuste a la población local
+•	Los puntos de corte son generales y muchas veces derivados de estudios internacionales.
+•	La propuesta de modelo se entrena con datos reales de la población, lo que permite que se ajuste mejor al contexto clínico y demográfico local.
+ 4. Permite automatización y escalabilidad
+•	Puede integrarse en software, aplicaciones o reportes automáticos a partir de la bioimpedancia.
+•	Ideal para tamizajes comunitarios, clínicas de atención primaria o sistemas de salud digitalizados.
+5. Facilidad para validación y mejora continua
+•	El modelo se puede evaluar, ajustar y optimizar con más datos.
+•	Permite calcular métricas como exactitud, sensibilidad, especificidad, y tomar decisiones basadas en desempeño real.
+
+Aunque los criterios clínicos ofrecen una herramienta simple y útil para la clasificación inicial, el modelo predictivo desarrollado proporciona una herramienta más precisa, individualizada y adaptativa para la identificación del riesgo de obesidad sarcopénica, con potencial de aplicación clínica y comunitaria en escenarios reales.
+
+---
+
+## 4.2. Metodología del Proyecto
+
+El desarrollo del análisis se realizó siguiendo los principios del ciclo de ciencia de datos, en las siguientes etapas:
+
+1. **Definición del problema**: Identificar personas con riesgo de obesidad sarcopénica en base a datos de bioimpedancia.
+2. **Importación y limpieza de datos**: Corrección de formatos numéricos, tratamiento de datos faltantes, selección de variables clave.
+3. **Análisis exploratorio (EDA)**: Visualización de la distribución y relaciones entre variables según sexo y riesgo.
+4. **Modelado predictivo**: Ajuste de un modelo de regresión logística para estimar la probabilidad de riesgo sarcopénico a partir de edad, sexo, % grasa y SMI.
+5. **Desarrollo de función personalizada**: Creación de una función en R que permite aplicar la clasificación a nuevos datos (para el examen).
+6. **Validación y evaluación del modelo**: Uso de predicciones, matriz de confusión y visualización de resultados.
+
+---
+
+## 4.3. Entregables del Proyecto
+
+- Un informe documentado en formato `.Rmd` con:
+  - Código comentado
+  - Gráficos interpretativos
+  - Resultados del modelo
+- Un modelo predictivo (`glm`) con interpretación de coeficientes
+- Una función escalable en R llamada `evaluar_sarcopenia()` 
+- Repositorio opcional en GitHub con archivos `.Rmd`, datos anonimizados y función exportada
+
+## 5. Función automatizada para predicción de riesgo
+
+La siguiente función permite automatizar la predicción de riesgo de obesidad sarcopénica a partir de nuevas observaciones individuales. Toma como entrada variables clave de composición corporal y retorna tanto la probabilidad como la clasificación binaria (0 = no riesgo, 1 = riesgo), utilizando el modelo de regresión logística previamente entrenado.
+
+```{r funcion-evaluar-sarcopenia, echo=TRUE}
+evaluar_sarcopenia <- function(sexo, edad, grasa_pct, smi, modelo) {
+  # Crear un data frame con la nueva observación
+  nuevo <- data.frame(
+    sexo = factor(sexo, levels = c("F", "M")),
+    edad = edad,
+    grasa_pct = grasa_pct,
+    smi = smi
+  )
+
+  # Calcular la probabilidad con el modelo logístico
+  prob <- predict(modelo, newdata = nuevo, type = "response")
+
+  # Clasificación binaria
+  clasificacion <- ifelse(prob > 0.5, 1, 0)
+
+  # Retornar ambas
+  list(probabilidad = prob, clasificacion = clasificacion)
+}
+```
+
+```{r modelo-log}
+modelo_log <- glm(riesgo_sarc ~ edad + sexo + grasa_pct + smi,
+                  data = datos_limpios,
+                  family = "binomial")
+```
+
+
+### Ejemplo de uso:
+
+```{r ejemplo-uso-funcion, echo=TRUE}
+# Evaluar un caso nuevo (por ejemplo, mujer de 65 años con grasa 40% y SMI 5.5)
+evaluar_sarcopenia("F", 65, 40, 5.5, modelo_log)
+```
+
+---
+
+## 5. Modelo de regresión logística para predicción del riesgo
+
+Se entrena un modelo de regresión logística utilizando las variables más relevantes: edad, sexo, porcentaje de grasa corporal y SMI, para predecir el riesgo de obesidad sarcopénica.
+
+```{r modelo-logistico}
+modelo_log <- glm(riesgo_sarc ~ edad + sexo + grasa_pct + smi,
+                  data = datos_limpios,
+                  family = "binomial")
+
+summary(modelo_log)
+exp(coef(modelo_log))  # Odds Ratios
+```
+```{r modelo-log-interpretado}
+modelo_log <- glm(riesgo_sarc ~ edad + sexo + grasa_pct + smi,
+                  data = datos_limpios,
+                  family = "binomial")
+
+summary(modelo_log)
+exp(coef(modelo_log))  
+
+```
+
+### Interpretación básica del modelo
+
+- Un **coeficiente positivo** indica que la variable **aumenta el riesgo** de obesidad sarcopénica.
+- Un **coeficiente negativo** indica que **disminuye el riesgo**.
+- Si el **odds ratio (OR)** es **mayor que 1**, la variable está **positivamente asociada** al riesgo.
+- Si el OR es **menor que 1**, tiene un **efecto protector**.
+- Por ejemplo:  
+- Un OR de 1.12 para la edad indicaría que **cada año adicional aumenta un 12% la probabilidad de riesgo**, manteniendo las otras variables constantes.
+
+
+## 6. Función automatizada para predicción de riesgo
+
+La siguiente función automatiza la predicción del riesgo. Recibe como entrada los datos de una persona nueva y entrega la probabilidad y clasificación binaria (riesgo/no riesgo) usando el modelo entrenado.
+
+```{r funcion-evaluar-sarcopenia2}
+evaluar_sarcopenia <- function(sexo, edad, grasa_pct, smi, modelo) {
+  nuevo <- data.frame(
+    sexo = factor(sexo, levels = c("F", "M")),
+    edad = edad,
+    grasa_pct = grasa_pct,
+    smi = smi
+  )
+  prob <- predict(modelo, newdata = nuevo, type = "response")
+  clasificacion <- ifelse(prob > 0.5, 1, 0)
+  list(probabilidad = prob, clasificacion = clasificacion)
+}
+```
+
+### Ejemplo de uso:
+
+```{r ejemplo-funcion}
+evaluar_sarcopenia("F", 67, 42.5, 5.3, modelo_log)
+```
+
+---
+
+## 7. Validación del modelo
+
+Se evalúa la capacidad del modelo para predecir correctamente los casos de riesgo, mediante matriz de confusión, exactitud, sensibilidad y especificidad.
+
+```{r matriz-confusion}
+# Probabilidades predichas
+prob <- predict(modelo_log, type = "response")
+pred <- ifelse(prob > 0.5, 1, 0)
+
+# Matriz de confusión
+conf_mat <- table(Predicho = pred, Real = datos_limpios$riesgo_sarc)
+conf_mat
+```
+
+```{r exactitud}
+exactitud <- mean(pred == datos_limpios$riesgo_sarc)
+paste("Exactitud del modelo:", round(exactitud * 100, 2), "%")
+```
+
+```{r sensibilidad-especificidad}
+VP <- conf_mat["1", "1"]
+VN <- conf_mat["0", "0"]
+FP <- conf_mat["1", "0"]
+FN <- conf_mat["0", "1"]
+
+sensibilidad <- VP / (VP + FN)
+especificidad <- VN / (VN + FP)
+
+paste("Sensibilidad:", round(sensibilidad * 100, 2), "%")
+paste("Especificidad:", round(especificidad * 100, 2), "%")
+```
+
+---
+
+## 8. Conclusión
+
+El presente análisis permitió desarrollar un modelo predictivo robusto para la detección del riesgo de obesidad sarcopénica, utilizando variables obtenidas a partir de mediciones de bioimpedancia con INBODY 370s. A través del uso de regresión logística, se integraron factores clave como sexo, edad, porcentaje de grasa corporal y SMI, permitiendo estimar la probabilidad individual de riesgo con buena precisión.
+
+El modelo mostró un desempeño adecuado según métricas como exactitud, sensibilidad y especificidad, lo que refuerza su potencial como herramienta de tamizaje en contextos clínicos y comunitarios. La incorporación de una función automatizada (evaluar_sarcopenia()) permite su futura implementación en sistemas digitales de salud, facilitando la toma de decisiones basadas en datos.
+
+Estos resultados evidencian la utilidad de la ciencia de datos aplicada al ámbito de la salud, y abren posibilidades para el desarrollo de soluciones predictivas escalables y adaptadas a las necesidades locales.
+
+Para el desarrollo de este trabajo se utilizó Chat GPT 4.0 para la revision de codigos y errores, ademas de sugerencias ya que al estar cursando en paralelo asignaturas como estadistica requerí profundizar tematicas  aun no revisadas.
+
+
